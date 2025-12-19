@@ -1,267 +1,119 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from io import StringIO
+import os
 
-# ==================== 中文字體設定（避免亂碼） ====================
-plt.rcParams['font.sans-serif'] = [
-    'Taipei Sans TC Beta', 'Microsoft JhengHei', 'SimHei', 'Arial Unicode MS'
-]
+# ==================== 1. 基本頁面設定 ====================
+st.set_page_config(page_title="台中氣象分析儀表板", layout="wide")
+
+# 中文字體設定
+plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
-# ==================== 頁面標題 ====================
+# ==================== 2. 資料讀取函數 ====================
+@st.cache_data # 快取資料，提升效能
+def load_data(file_path):
+    if not os.path.exists(file_path):
+        return None
+    
+    # 讀取 CSV
+    df = pd.read_csv(file_path, skipinitialspace=True)
+    
+    # 資料清理：處理雨跡 (-9.8 視為 0)
+    df['PP01'] = df['PP01'].replace(-9.8, 0.0)
+    
+    # 時間轉換
+    df['date'] = pd.to_datetime(df['yyyymmdd'], format='%Y%m%d')
+    df = df.sort_values('date').reset_index(drop=True)
+    df['month'] = df['date'].dt.month
+    
+    # --- 太陽能發電潛力計算 ---
+    panel_area = 10         # 10 平方公尺
+    panel_efficiency = 0.18 # 18% 效率
+    df['UV_norm'] = df['UV01'] / (df['UV01'].max() if df['UV01'].max() != 0 else 1)
+    df['solar_kwh'] = df['SS01'] * 1.0 * panel_area * panel_efficiency * df['UV_norm']
+    
+    return df
+
+# 載入資料
+DATA_FILE = 'weather_data.csv'
+df = load_data(DATA_FILE)
+
+# ==================== 3. 側邊欄與標題 ====================
 st.title("🌤️ 台中市 多要素分析儀表板")
-st.markdown("### 2025年10月～11月 真實氣象資料分析")
+st.markdown("---")
 
-# ==================== 原始資料 ====================
-data = """467490, 20251001, 28.8, 0.0, 8.1, 7.32, 110000
-467490, 20251002, 28.9, 0.0, 8.0, 8.26, 110000
-467490, 20251003, 28.9, 0.0, 7.4, 8.01, 110000
-467490, 20251004, 29.4, 0.0, 9.3, 9.22, 130000
-467490, 20251005, 29.3, 0.0, 8.7, 8.32, 110000
-467490, 20251006, 29.2, 0.0, 7.2, 7.74, 120000
-467490, 20251007, 29.5, 0.0, 6.6, 6.87, 120000
-467490, 20251008, 29.6, 0.0, 5.1, 5.74, 110000
-467490, 20251009, 29.2, 0.0, 3.3, 6.34, 130000
-467490, 20251010, 29.0, 0.0, 7.1, 8.11, 120000
-467490, 20251011, 29.3, 0.0, 9.4, 8.90, 120000
-467490, 20251012, 28.5, 0.0, 9.2, 7.93, 120000
-467490, 20251013, 28.9, 0.0, 8.9, 7.04, 110000
-467490, 20251014, 29.2, 0.0, 9.7, 8.87, 120000
-467490, 20251015, 28.9, 0.0, 5.2, 7.01, 120000
-467490, 20251016, 28.7, 0.0, 5.8, 4.68, 130000
-467490, 20251017, 29.1, 0.0, 8.3, 8.00, 120000
-467490, 20251018, 29.2, 0.0, 9.3, 6.47, 120000
-467490, 20251019, 28.4, 0.0, 3.0, 4.89, 130000
-467490, 20251020, 27.0, 1.5, 3.3, 10.30, 120000
-467490, 20251021, 25.4, 0.0, 5.6, 9.73, 120000
-467490, 20251022, 25.1, 0.0, 5.3, 9.81, 120000
-467490, 20251023, 26.2, -9.8, 1.2, 6.57, 120000
-467490, 20251024, 26.1, 0.0, 3.7, 8.86, 120000
-467490, 20251025, 26.6, 0.0, 8.5, 8.18, 120000
-467490, 20251026, 25.9, 0.0, 9.9, 8.41, 120000
-467490, 20251027, 24.4, 0.5, 0.2, 4.84, 120000
-467490, 20251028, 22.9, 5.0, 0.0, 4.15, 130000
-467490, 20251029, 25.3, -9.8, 8.2, 7.72, 120000
-467490, 20251030, 26.4, 0.0, 2.7, 4.58, 110000
-467490, 20251031, 25.4, 0.0, 9.1, 7.65, 120000
-467490, 20251101, 25.1, 0.0, 3.8, 5.35, 140000
-467490, 20251102, 24.3, 0.0, 0.9, 4.52, 140000
-467490, 20251103, 23.8, 0.0, 3.8, 7.45, 130000
-467490, 20251104, 24.0, 0.0, 4.6, 6.95, 120000
-467490, 20251105, 25.4, 0.0, 9.9, 8.17, 120000
-467490, 20251106, 26.1, 0.0, 9.7, 7.26, 120000
-467490, 20251107, 27.1, 0.0, 9.8, 7.06, 120000
-467490, 20251108, 26.2, 0.0, 2.8, 5.51, 130000
-467490, 20251109, 26.4, 0.0, 6.3, 6.89, 120000
-467490, 20251110, 25.2, -9.8, 0.9, 4.34, 110000
-467490, 20251111, 25.3, -9.8, 2.5, 5.21, 130000
-467490, 20251112, 24.1, 0.5, 0.0, 4.17, 140000
-467490, 20251113, 24.0, 1.5, 2.5, 5.44, 110000
-467490, 20251114, 23.8, -9.8, 9.8, 7.31, 120000
-467490, 20251115, 24.0, 0.0, 9.8, 6.94, 120000
-467490, 20251116, 24.1, 0.0, 9.8, 7.03, 120000
-467490, 20251117, 24.1, 0.0, 9.7, 7.17, 120000
-467490, 20251118, 20.9, 0.0, 4.3, 6.61, 120000
-467490, 20251119, 17.3, -9.8, 0.1, 2.74, 120000
-467490, 20251120, 19.2, 0.0, 5.1, 6.53, 120000
-467490, 20251121, 20.8, -9.8, 1.9, 4.05, 120000
-467490, 20251122, 21.3, 0.0, 9.9, 6.01, 120000
-467490, 20251123, 22.0, 0.0, 10.0, 6.30, 120000
-467490, 20251124, 22.8, 0.0, 9.5, 5.65, 120000
-467490, 20251125, 21.3, 0.0, 9.5, 5.91, 120000
-467490, 20251126, 20.2, 0.0, 7.7, 5.62, 120000
-467490, 20251127, 20.3, -9.8, 2.0, 3.68, 140000
-467490, 20251128, 20.3, -9.8, 0.8, 4.30, 110000
-467490, 20251129, 20.9, 0.0, 9.3, 5.80, 120000
-467490, 20251130, 22.0, 0.0, 4.2, 6.06, 120000
-"""
+if df is None:
+    st.error(f"找不到檔案 `{DATA_FILE}`，請確保檔案已上傳至正確目錄。")
+    st.stop()
 
-# ==================== 讀取資料 ====================
-df = pd.read_csv(
-    StringIO(data),
-    header=None,
-    names=['stno', 'yyyymmdd', 'TX01', 'PP01', 'SS01', 'UV01', 'UV03'],
-    skipinitialspace=True
-)
-
-# -9.8 為雨跡（Trace rain），此分析視為 0 mm
-df['PP01'] = df['PP01'].replace(-9.8, 0.0)
-
-df['date'] = pd.to_datetime(df['yyyymmdd'], format='%Y%m%d')
-df = df.sort_values('date').reset_index(drop=True)
-df['month'] = df['date'].dt.month
-# ==================== 太陽能發電潛力估算 ====================
-panel_area = 10          # m²
-panel_efficiency = 0.18  # 18%
-solar_irradiance = 1.0   # kW/m²（簡化假設）
-
-# UV 正規化（避免數值過大）
-df['UV_norm'] = df['UV01'] / df['UV01'].max()
-
-# 預估每日發電量（kWh）
-df['solar_kwh'] = (
-    df['SS01'] *
-    solar_irradiance *
-    panel_area *
-    panel_efficiency *
-    df['UV_norm']
-)
-
-
-
-# ==================== 側邊欄 ====================
-st.sidebar.header("⚙️ 分析設定")
-
-primary = st.sidebar.selectbox(
-    "主要顯示要素",
+st.sidebar.header("⚙️ 分析與控制")
+primary_key = st.sidebar.selectbox(
+    "主要分析要素",
     ['TX01', 'PP01', 'SS01', 'UV01'],
-    format_func=lambda x: {
-        'TX01':'平均氣溫(℃)',
-        'PP01':'降水量(mm)',
-        'SS01':'日照時數(小時)',
-        'UV01':'紫外線指數'
-    }[x]
+    format_func=lambda x: {'TX01':'平均氣溫(℃)', 'PP01':'降水量(mm)', 'SS01':'日照時數(小時)', 'UV01':'紫外線指數'}[x]
 )
 
-def format_secondary(x):
-    if x is None:
-        return '無'
-    return {
-        'TX01':'平均氣溫(℃)',
-        'PP01':'降水量(mm)',
-        'SS01':'日照時數(小時)',
-        'UV01':'紫外線指數'
-    }[x]
-
-secondary = st.sidebar.selectbox(
-    "第二要素（雙Y軸比較，可選無）",
+secondary_key = st.sidebar.selectbox(
+    "對比要素 (雙軸)",
     [None, 'TX01', 'PP01', 'SS01', 'UV01'],
-    format_func=format_secondary
+    format_func=lambda x: '無' if x is None else {'TX01':'平均氣溫(℃)', 'PP01':'降水量(mm)', 'SS01':'日照時數(小時)', 'UV01':'紫外線指數'}[x]
 )
 
-window = st.sidebar.slider("移動平均天數", 1, 30, 7)
+window = st.sidebar.slider("移動平均趨勢（天數）", 1, 14, 7)
 
-# ==================== 統計 ====================
-col_name = {'TX01':'平均氣溫', 'PP01':'降水量', 'SS01':'日照時數', 'UV01':'紫外線指數'}
-unit = {'TX01':'℃', 'PP01':'mm', 'SS01':'小時', 'UV01':''}
+# ==================== 4. 關鍵指標 (Metrics) ====================
+col_info = {
+    'TX01':('平均氣溫','℃'), 'PP01':('降水量','mm'), 
+    'SS01':('日照時數','小時'), 'UV01':('紫外線指數','')
+}
 
-avg = df[primary].mean()
-total = df[primary].sum()
-max_val = df[primary].max()
+name, unit = col_info[primary_key]
+avg_val = df[primary_key].mean()
+max_val = df[primary_key].max()
+max_date = df.loc[df[primary_key].idxmax(), 'date'].strftime('%Y-%m-%d')
 
-# ⭐ 關鍵修正：日期一定轉成字串
-if df[primary].notna().any():
-    max_day = df.loc[df[primary].idxmax(), 'date'].strftime('%Y-%m-%d')
-else:
-    max_day = "無資料"
+st.subheader(f"📊 {name} 核心統計")
+m1, m2, m3 = st.columns(3)
+m1.metric("期間平均值", f"{avg_val:.2f} {unit}")
+m2.metric("最大觀測值", f"{max_val:.2f} {unit}")
+m3.metric("發生日期", max_date)
 
-# ==================== 顯示指標 ====================
-st.subheader(f"📊 {col_name[primary]} 統計")
-c1, c2, c3, c4 = st.columns(4)
+# ==================== 5. 圖表視覺化 ====================
+st.markdown("### 📈 每日變化趨勢")
+fig, ax1 = plt.subplots(figsize=(10, 4))
 
-c1.metric("平均值", f"{avg:.2f} {unit[primary]}")
-c2.metric("總和", f"{total:.1f} {unit[primary]}")
-c3.metric("最大值", f"{max_val:.2f} {unit[primary]}")
-c4.metric("最大值日期", max_day)
+# 主軸
+ax1.plot(df['date'], df[primary_key], color='#3498db', alpha=0.4, label=f"{name}")
+ax1.plot(df['date'], df[primary_key].rolling(window).mean(), color='#2980b9', linewidth=2, label=f"{window}日移動平均")
+ax1.set_ylabel(f"{name} ({unit})")
+ax1.grid(True, linestyle='--', alpha=0.5)
 
-# ==================== 趨勢圖 ====================
-st.subheader("📈 每日趨勢圖（含移動平均）")
-fig, ax1 = plt.subplots(figsize=(12, 6))
-
-ax1.plot(df['date'], df[primary], alpha=0.6, label=col_name[primary])
-ax1.plot(
-    df['date'],
-    df[primary].rolling(window=window).mean(),
-    linewidth=3,
-    label=f'{window} 天移動平均'
-)
-
-if secondary:
+# 雙軸設定
+if secondary_key:
     ax2 = ax1.twinx()
-    ax2.plot(df['date'], df[secondary], alpha=0.6, label=col_name[secondary])
-    ax2.plot(
-        df['date'],
-        df[secondary].rolling(window=window).mean(),
-        linewidth=3,
-        label=f'{window} 天移動平均'
-    )
+    s_name, s_unit = col_info[secondary_key]
+    ax2.plot(df['date'], df[secondary_key], color='#e74c3c', alpha=0.4, label=s_name)
+    ax2.set_ylabel(f"{s_name} ({s_unit})", color='#e74c3c')
 
-lines1, labels1 = ax1.get_legend_handles_labels()
-if secondary:
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2)
-else:
-    ax1.legend()
-
-ax1.set_xlabel("日期")
-ax1.grid(alpha=0.3)
+fig.legend(loc='upper right', bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
 st.pyplot(fig)
 
-# ==================== 資料表 ====================
-with st.expander("🔍 查看完整原始資料"):
-    st.dataframe(df[['date','TX01','PP01','SS01','UV01']])
+# ==================== 6. 月份對比區塊 ====================
+st.markdown("---")
+c_left, c_right = st.columns(2)
 
-# ==================== 10 月 vs 11 月比較 ====================
-st.subheader("📅 10 月 vs 11 月比較")
+with c_left:
+    st.subheader("📅 月份數據對比")
+    compare_df = df.groupby('month')[primary_key].agg(['mean', 'max', 'sum']).rename(index={10: '10月', 11: '11月'})
+    st.table(compare_df.style.format("{:.2f}"))
 
-month_map = {10: "10 月", 11: "11 月"}
+with c_right:
+    st.subheader("☀️ 太陽能發電潛力 (kWh)")
+    solar_df = df.groupby('month')['solar_kwh'].agg(['mean', 'sum']).rename(index={10: '10月', 11: '11月'})
+    solar_df.columns = ['平均每日', '月總量']
+    st.table(solar_df.style.format("{:.1f}"))
 
-compare_df = (
-    df[df['month'].isin([10, 11])]
-    .groupby('month')[primary]
-    .agg(['mean', 'sum', 'max'])
-    .rename(index=month_map)
-)
-
-compare_df.columns = ['平均值', '總和', '最大值']
-
-# 顯示表格
-st.dataframe(
-    compare_df.style.format({
-        '平均值': '{:.2f}',
-        '總和': '{:.1f}',
-        '最大值': '{:.2f}'
-    })
-)
-st.subheader("☀️ 10 月 vs 11 月 太陽能發電潛力比較")
-
-solar_compare = (
-    df[df['month'].isin([10, 11])]
-    .groupby('month')['solar_kwh']
-    .agg(['mean', 'sum'])
-    .rename(index={10: '10 月', 11: '11 月'})
-)
-
-solar_compare.columns = ['平均每日發電量 (kWh)', '整月發電量 (kWh)']
-
-st.dataframe(
-    solar_compare.style.format({
-        '平均每日發電量 (kWh)': '{:.2f}',
-        '整月發電量 (kWh)': '{:.1f}'
-    })
-)
-
-st.subheader("📊 10 月 vs 11 月整體比較")
-
-fig2, ax = plt.subplots(figsize=(6, 4))
-
-compare_df['平均值'].plot(kind='bar', ax=ax)
-ax.set_ylabel(f"{col_name[primary]} ({unit[primary]})")
-ax.set_title(f"10 月 vs 11 月 {col_name[primary]} 平均比較")
-ax.grid(axis='y', alpha=0.3)
-
-st.pyplot(fig2)
-
-st.subheader("📊 10 月 vs 11 月 太陽能發電潛力")
-
-fig3, ax = plt.subplots(figsize=(6, 4))
-
-solar_compare['平均每日發電量 (kWh)'].plot(kind='bar', ax=ax)
-ax.set_ylabel("kWh / 日")
-ax.set_title("10 月 vs 11 月 平均每日太陽能發電量")
-ax.grid(axis='y', alpha=0.3)
-
-st.pyplot(fig3)
-
-
+# ==================== 7. 原始資料 ====================
+with st.expander("🔍 展開查看原始數據表"):
+    st.dataframe(df[['date', 'TX01', 'PP01', 'SS01', 'UV01', 'solar_kwh']], use_container_width=True)
