@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 
 # ==================== 1. 基本頁面設定 ====================
 st.set_page_config(page_title="台中氣象分析儀表板", layout="wide")
@@ -10,42 +9,22 @@ st.set_page_config(page_title="台中氣象分析儀表板", layout="wide")
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
-# ==================== 2. 資料讀取函數 ====================
-@st.cache_data # 快取資料，提升效能
-def load_data(file_path):
-    if not os.path.exists(file_path):
-        return None
-    
-    # 讀取 CSV
-    df = pd.read_csv(file_path, skipinitialspace=True)
-    
-    # 資料清理：處理雨跡 (-9.8 視為 0)
-    df['PP01'] = df['PP01'].replace(-9.8, 0.0)
-    
-    # 時間轉換
-    df['date'] = pd.to_datetime(df['yyyymmdd'], format='%Y%m%d')
-    df = df.sort_values('date').reset_index(drop=True)
-    df['month'] = df['date'].dt.month
-    
-    # --- 太陽能發電潛力計算 ---
-    panel_area = 10         # 10 平方公尺
-    panel_efficiency = 0.18 # 18% 效率
-    df['UV_norm'] = df['UV01'] / (df['UV01'].max() if df['UV01'].max() != 0 else 1)
-    df['solar_kwh'] = df['SS01'] * 1.0 * panel_area * panel_efficiency * df['UV_norm']
-    
+# ==================== 2. 資料讀取 ====================
+@st.cache_data
+def load_data():
+    df = pd.read_csv("data/analytics/weather_solar.csv")
+    df['date'] = pd.to_datetime(df['date'])
     return df
 
-# 載入資料
-DATA_FILE = 'weather_data.csv'
-df = load_data(DATA_FILE)
+df = load_data()
+
+if df is None:
+    st.error("找不到資料，請先跑 pipeline")
+    st.stop()
 
 # ==================== 3. 側邊欄與標題 ====================
 st.title("🌤️ 台中市 多要素分析儀表板")
 st.markdown("---")
-
-if df is None:
-    st.error(f"找不到檔案 `{DATA_FILE}`，請確保檔案已上傳至正確目錄。")
-    st.stop()
 
 st.sidebar.header("⚙️ 分析與控制")
 primary_key = st.sidebar.selectbox(
@@ -62,7 +41,7 @@ secondary_key = st.sidebar.selectbox(
 
 window = st.sidebar.slider("移動平均趨勢（天數）", 1, 14, 7)
 
-# ==================== 4. 關鍵指標 (Metrics) ====================
+# ==================== 4. 關鍵指標 ====================
 col_info = {
     'TX01':('平均氣溫','℃'), 'PP01':('降水量','mm'), 
     'SS01':('日照時數','小時'), 'UV01':('紫外線指數','')
@@ -105,12 +84,12 @@ c_left, c_right = st.columns(2)
 
 with c_left:
     st.subheader("📅 月份數據對比")
-    compare_df = df.groupby('month')[primary_key].agg(['mean', 'max', 'sum']).rename(index={10: '10月', 11: '11月'})
+    compare_df = df.groupby('month')[primary_key].agg(['mean', 'max', 'sum'])
     st.table(compare_df.style.format("{:.2f}"))
 
 with c_right:
     st.subheader("☀️ 太陽能發電潛力 (kWh)")
-    solar_df = df.groupby('month')['solar_kwh'].agg(['mean', 'sum']).rename(index={10: '10月', 11: '11月'})
+    solar_df = df.groupby('month')['solar_kwh'].agg(['mean', 'sum'])
     solar_df.columns = ['平均每日', '月總量']
     st.table(solar_df.style.format("{:.1f}"))
 
